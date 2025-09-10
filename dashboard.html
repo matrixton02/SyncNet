@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SwarmLearn Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h2>Client Training Progress</h2>
+    <div id="charts"></div>
+
+    <script>
+    let charts = {};
+
+    async function fetchData() {
+        let res = await fetch("/progress");
+        let data = await res.json();
+
+        for (let cid in data) {
+            if (!charts[cid]) {
+                let canvas = document.createElement("canvas");
+                canvas.id = "chart" + cid;
+                document.getElementById("charts").appendChild(canvas);
+
+                charts[cid] = new Chart(canvas.getContext("2d"), {
+                    type: "line",
+                    data: { labels: [], datasets: [{ label: `Client ${cid} Loss`, data: [], borderColor: "blue", fill: false }] },
+                    options: { responsive: true }
+                });
+            }
+
+            let chart = charts[cid];
+            chart.data.labels = data[cid].map((_, i) => i);
+            chart.data.datasets[0].data = data[cid].map(u => u.loss);
+            chart.update();
+        }
+    }
+
+    setInterval(fetchData, 2000);
+    </script>
+</body>
+</html>

@@ -7,7 +7,21 @@ import pandas as pd
 from torchvision import datasets,transforms
 from utils import serialize_model,average_weights
 from model import FlexibleNN
+from flask import Flask,jsonify,render_template
 
+
+app=Flask(__name__)
+
+@app.route("/")
+def index():
+    return render_template("dashboard.html")
+
+@app.route("/progress")
+def progress():
+    return jsonify(client_update)
+def run_dashboard():
+    print("[SERVER] Dashboard started at http://localhost:8000")
+    app.run(port=8000, debug=False, use_reloader=False)
 
 client_update={}
 final_weight=[]
@@ -95,6 +109,9 @@ def run_server(HOST="0.0.0.0",PORT=5000,num_clients=2):
         threading.Thread(target=handle_client,args=(conn,client_id,data_chunk[client_id],model_bytes,arch)).start()
         client_id+=1
 
+    dash_thread = threading.Thread(target=run_dashboard, daemon=True)
+    dash_thread.start()
+    
     while len(final_weight)<num_clients:
         pass
 
