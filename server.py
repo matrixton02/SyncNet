@@ -2,17 +2,50 @@ import socket
 import threading
 import pickle
 import torch
+from torch.utils.data import random_split,TensorDataset,Subset
+import pandas as pd
+from torchvision import datasets,transforms
 from utils import serialize_model,average_weights
+from model import FlexibleNN
+
 
 client_update={}
 final_weight=[]
 
-def handle_client(conn,addr,client_id,data_chunk,model_bytes):
-    print(f"[SERVER] Sending model and data to client {client_id}")
+def load_dataset_user():
+    choice=input("Use custom CSV dataset (y/n): ").strip().lower()
+    if(choice=="y"):
+        csv_path=input("Enter path to CSV file: ").strip()
+        df=pd.read_csv(csv_path)
+        x=torch.tensor(df.iloc[::-1].values,dtype=torch.float32)
+        y=torch.tensor(df.iloc[::-1].value,dtype=torch.long)
+        dataset=TensorDataset(x,y)
+        input_dim=x.shape[1]
+        output_dim=len(set(y.tolist()))
+        return dataset,input_dim,output_dim
+    else:
+        transform=transforms.Compose([transforms.ToTensor()])
+        dataset=datasets.MNIST(root="./data",train=True,download=True,transform=transform)
+        input_dim,output_dim=28*28,10
+        return dataset,input_dim,output_dim
 
+def build_model_user(input_dim,output_dim):
+    layers=int(input("Enter number of hidden layers: "))
+    hidden_dims=[]
+    for i in range(layers):
+        neurons=int(input(f"Enter number of neurons in hidden layer {i+1}: "))
+        hidden_dims.append(neurons)
+    print(f"Building model: {input_dim}->{hidden_dims}->{output_dim}")
+    return FlexibleNN(input_dim,hidden_dims,output_dim),hidden_dims
+
+
+def handle_client(conn,client_id,data_chunk,model_bytes,arch):
+    print(f"[SERVER] Sending model and data to client {client_id}")
+    data_list=[(x,y) for x,y, in data_chunk]
     payload={
         "model":model_bytes,
-        "data":data_chunk,
+        "arch":arch,
+        "data":data_list,
         "client_id":client_id
     }
 
@@ -24,10 +57,10 @@ def handle_client(conn,addr,client_id,data_chunk,model_bytes):
             if not data:
                 break
             msg=pickle.loads(data)
-
             if msg["type"]=="progress":
-                client_update[client_id]=msg
+                client_update.setdefault(client_id,[]).append(msg)
             elif msg["type"]=="weights":
+                final_weight.append(msg["weights"])
                 print(f"[SERVER] Received final weights from client {client_id}")
                 break
         except:
@@ -35,27 +68,33 @@ def handle_client(conn,addr,client_id,data_chunk,model_bytes):
 
     conn.close()
 
-def run_server(HOST="0.0.0.0",PORT=5000,dataset=None,model=None,num_clients=2):
+def run_server(HOST="0.0.0.0",PORT=5000,num_clients=2):
+    dataset,input_dim,output_dim=load_dataset_user()
+    model,hidden_dims=build_model_user(input_dim,output_dim)
+
     s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     s.bind((HOST,PORT))
     s.listen(num_clients)
     print(f"[SERVER] Listening on {HOST}:{PORT}")
 
     model_bytes=serialize_model(model)
-
     data_chunk_size=len(dataset)//num_clients
     data_chunk=[]
     for i in range(num_clients):
-        chunk=dataset[i*data_chunk_size:(i+1)*data_chunk_size]
-        data_chunk.append(chunk)
+        start = i * data_chunk_size
+        end = (i + 1) * data_chunk_size
+        indices = list(range(start, end))
+        data_chunk.append(Subset(dataset, indices))
     
     client_id=0
 
     while client_id<num_clients:
         conn,addr=s.accept()
         print(f"[SERVER] Client {client_id} connected from {addr}")
-        threading.Thread(target=handle_client,args=(conn,addr,client_id,data_chunk[client_id],model_bytes)).start()
+        arch={"input_dim":input_dim,"hidden_dims":hidden_dims,"output_dim":output_dim}
+        threading.Thread(target=handle_client,args=(conn,client_id,data_chunk[client_id],model_bytes,arch)).start()
         client_id+=1
+
     while len(final_weight)<num_clients:
         pass
 
