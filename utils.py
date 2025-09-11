@@ -16,7 +16,7 @@ def deserialize_model(model,model_bytes):
 
 def average_weights(weights):
     avg={}
-    for key in weights[0].keys:
+    for key in weights[0].keys():
         avg[key]=sum([w[key] for w in weights])/len(weights)
     return avg
 

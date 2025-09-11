@@ -5,10 +5,10 @@ import torch
 from torch.utils.data import random_split,TensorDataset,Subset
 import pandas as pd
 from torchvision import datasets,transforms
-from utils import serialize_model,average_weights, send_msg
+from utils import serialize_model,average_weights, send_msg, recv_msg
 from model import FlexibleNN
 from flask import Flask,jsonify,render_template
-
+import time
 
 app=Flask(__name__)
 
@@ -53,8 +53,8 @@ def build_model_user(input_dim,output_dim):
     return FlexibleNN(input_dim,hidden_dims,output_dim),hidden_dims
 
 
-def handle_client(conn,client_id,data_chunk,model_bytes,arch):
-    print(f"[SERVER] Sending model and data to client {client_id}")
+def handle_client(conn,client_id,data_chunk,model_bytes,arch,s):
+    print(f"[SERVER] Preparing to send {len(data_chunk)} samples to client {client_id}")
     data_list=[(x,y) for x,y, in data_chunk]
     # payload={
     #     "model":model_bytes,
@@ -62,29 +62,34 @@ def handle_client(conn,client_id,data_chunk,model_bytes,arch):
     #     "data":data_list,
     #     "client_id":client_id
     # }
+    print(f"[SERVER] Sending data to client {client_id}")
     send_msg(conn, {"client_id":client_id})
     send_msg(conn, {"model": model_bytes})
+    print(f"[SERVER] Model data to client {client_id}")
     send_msg(conn, {"arch": arch})
+    print(f"[SERVER] arch data to client {client_id}")
     send_msg(conn, {"data": data_list})
+    print(f"[SERVER] training data to client {client_id}")
+    print(f"[SERVER] Sent data to client {client_id}")
 
-    while True:
-        try:
-            data=conn.recv(10**6)
-            if not data:
-                break
-            msg=pickle.loads(data)
-            if msg["type"]=="progress":
-                client_update.setdefault(client_id,[]).append(msg)
-            elif msg["type"]=="weights":
-                final_weight.append(msg["weights"])
-                print(f"[SERVER] Received final weights from client {client_id}")
-                break
-        except:
-            break
+    try:
+        while True:
+                data=recv_msg(conn)
+                if not data:
+                    continue
+                msg=data
+                if msg["type"]=="progress":
+                    client_update.setdefault(client_id,[]).append(msg)
+                elif msg["type"]=="weights":
+                    final_weight.append(msg["weights"])
+                    print(f"[SERVER] Received final weights from client {client_id}")
+                    break
+    except(ConnectionResetError,EOFError) as e: 
+        print(f"[SERVER] Connection error with client {client_id}: {e}")
+    finally:
+        conn.close()
 
-    conn.close()
-
-def run_server(HOST="0.0.0.0",PORT=5000,num_clients=2):
+def run_server(HOST="0.0.0.0",PORT=5050,num_clients=2):
     dataset,input_dim,output_dim=load_dataset_user()
     model,hidden_dims=build_model_user(input_dim,output_dim)
 
@@ -94,28 +99,34 @@ def run_server(HOST="0.0.0.0",PORT=5000,num_clients=2):
     print(f"[SERVER] Listening on {HOST}:{PORT}")
 
     model_bytes=serialize_model(model)
-    data_chunk_size=len(dataset)//num_clients
-    data_chunk=[]
-    for i in range(num_clients):
-        start = i * data_chunk_size
-        end = (i + 1) * data_chunk_size
-        indices = list(range(start, end))
-        data_chunk.append(Subset(dataset, indices))
-    
-    client_id=0
+    chunks = []
+    data_chunk_size = len(dataset) // num_clients
+    remainder = len(dataset) % num_clients
+    start = 0
 
-    while client_id<num_clients:
+    connections=[]
+    for i in range(num_clients):
+        end = start + data_chunk_size + (1 if i < remainder else 0)
+        indices = list(range(start, end))
+        chunks.append(Subset(dataset, indices))
+        start = end
+
+    for client_id in range(num_clients):
         conn,addr=s.accept()
         print(f"[SERVER] Client {client_id} connected from {addr}")
+        connections.append([conn,client_id])
+
+    for i in connections:
+        client_con=i[0]
+        client_id=i[1]
         arch={"input_dim":input_dim,"hidden_dims":hidden_dims,"output_dim":output_dim}
-        threading.Thread(target=handle_client,args=(conn,client_id,data_chunk[client_id],model_bytes,arch)).start()
-        client_id+=1
+        threading.Thread(target=handle_client,args=(client_con,client_id,chunks[client_id],model_bytes,arch,s)).start()
 
     # dash_thread = threading.Thread(target=run_dashboard, daemon=True)
     # dash_thread.start()
     
     while len(final_weight)<num_clients:
-        pass
+        time.sleep(0.1)
 
     average=average_weights(final_weight)
     model.load_state_dict(average)
