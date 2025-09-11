@@ -44,7 +44,7 @@ def connect(SERVER_IP="0.0.0.0",PORT=5050):
 
     print(f"[CLIENT {client_id}] Training on {len(dataset)} samples")
 
-    for epoch in range(5):
+    for epoch in range(20):
         for i,(inputs,labels) in enumerate(loader):
             optimizer.zero_grad()
             outputs=model(inputs)
