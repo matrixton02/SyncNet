@@ -5,18 +5,22 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from model import FlexibleNN
-from utils import deserialize_model
+from utils import deserialize_model,recv_msg
 
-def connect(SERVER_IP,PORT=5000):
+def connect(SERVER_IP="0.0.0.0",PORT=5050):
     s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     s.connect((SERVER_IP,PORT))
     print(f"[CLIENT] Connected to server {SERVER_IP}:{PORT}")
 
-    payload=pickle.loads(s.recv(10**8))
-    client_id=payload["client_id"]
-    arch=payload["arch"]
-    model_bytes=payload["model"]
-    data_list=payload["data"]
+    payload1 = recv_msg(s)
+    payload2 = recv_msg(s)
+    payload3 = recv_msg(s)
+    payload4 = recv_msg(s)
+
+    client_id = payload1["client_id"]
+    model_bytes = payload2["model"]
+    arch = payload3["arch"]
+    data_list = payload4["data"]
 
     model=FlexibleNN(arch["input_dim"],arch["hidden_dims"],arch["output_dim"])
     model=deserialize_model(model,model_bytes)
@@ -31,7 +35,7 @@ def connect(SERVER_IP,PORT=5000):
 
     print(f"[CLIENT {client_id}] Training on {len(dataset)} samples")
 
-    for epoch in range(100):
+    for epoch in range(5):
         for i,(inputs,labels) in enumerate(loader):
             optimizer.zero_grad()
             outputs=model(inputs)

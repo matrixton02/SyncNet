@@ -5,7 +5,7 @@ import torch
 from torch.utils.data import random_split,TensorDataset,Subset
 import pandas as pd
 from torchvision import datasets,transforms
-from utils import serialize_model,average_weights
+from utils import serialize_model,average_weights, send_msg
 from model import FlexibleNN
 from flask import Flask,jsonify,render_template
 
@@ -56,14 +56,16 @@ def build_model_user(input_dim,output_dim):
 def handle_client(conn,client_id,data_chunk,model_bytes,arch):
     print(f"[SERVER] Sending model and data to client {client_id}")
     data_list=[(x,y) for x,y, in data_chunk]
-    payload={
-        "model":model_bytes,
-        "arch":arch,
-        "data":data_list,
-        "client_id":client_id
-    }
-
-    conn.sendall(pickle.dumps(payload))
+    # payload={
+    #     "model":model_bytes,
+    #     "arch":arch,
+    #     "data":data_list,
+    #     "client_id":client_id
+    # }
+    send_msg(conn, {"client_id":client_id})
+    send_msg(conn, {"model": model_bytes})
+    send_msg(conn, {"arch": arch})
+    send_msg(conn, {"data": data_list})
 
     while True:
         try:
@@ -109,8 +111,8 @@ def run_server(HOST="0.0.0.0",PORT=5000,num_clients=2):
         threading.Thread(target=handle_client,args=(conn,client_id,data_chunk[client_id],model_bytes,arch)).start()
         client_id+=1
 
-    dash_thread = threading.Thread(target=run_dashboard, daemon=True)
-    dash_thread.start()
+    # dash_thread = threading.Thread(target=run_dashboard, daemon=True)
+    # dash_thread.start()
     
     while len(final_weight)<num_clients:
         pass

@@ -2,7 +2,7 @@ import torch.nn as nn
 
 class FlexibleNN(nn.Module):
     def __init__(self,input_dim,hidden_dims,output_dim):
-        super(FlexibleNN).__init__()
+        super(FlexibleNN,self).__init__()
         layers=[]
         prev_dim=input_dim
 
