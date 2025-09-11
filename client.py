@@ -6,10 +6,17 @@ from torch.utils.data import DataLoader, TensorDataset
 from model import FlexibleNN
 from utils import deserialize_model, recv_msg, send_msg
 
-def fedprox_loss(outputs, labels, model, global_params, mu=0.01):
+def fedprox_loss(outputs, labels, model, global_params):
     criterion = nn.CrossEntropyLoss()
     ce_loss = criterion(outputs, labels)
 
+    # adaptive mu based on drift
+    drift = 0.0
+    for param, global_param in zip(model.parameters(), global_params):
+        drift += torch.norm(param - global_param).item()
+    mu = min(0.1, max(0.001, drift / 1000))  # dynamic regularization
+
+    # proximal term
     prox_term = 0.0
     for param, global_param in zip(model.parameters(), global_params):
         prox_term += ((param - global_param) ** 2).sum()
@@ -56,11 +63,12 @@ def connect(SERVER_IP="127.0.0.1", PORT=5050):
             outputs = model(inputs)
 
             if training_type == "fedprox":
-                loss = fedprox_loss(outputs, labels, model, global_params, mu=0.01)
+                loss = fedprox_loss(outputs, labels, model, global_params)
             else:
                 loss = criterion(outputs, labels)
 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
             if i % 5 == 0:

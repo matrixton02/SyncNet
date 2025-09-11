@@ -14,11 +14,18 @@ def deserialize_model(model,model_bytes):
     model.load_state_dict(state_dict)
     return model
 
-def average_weights(weights):
-    avg={}
-    for key in weights[0].keys():
-        avg[key]=sum([w[key] for w in weights])/len(weights)
-    return avg
+def average_weights(weights_list, client_chunks):
+    total_samples = sum(len(chunk) for chunk in client_chunks)
+    avg_weights = {}
+
+    for key in weights_list[0].keys():
+        weighted_sum = sum(
+            w[key] * (len(client_chunks[i]) / total_samples) 
+            for i, w in enumerate(weights_list)
+        )
+        avg_weights[key] = weighted_sum
+        
+    return avg_weights
 
 def send_msg(conn,obj):
     data=pickle.dumps(obj)

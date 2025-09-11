@@ -126,19 +126,18 @@ def run_server(HOST="0.0.0.0", PORT=5050, num_clients=2):
     for client_id in range(num_clients):
         conn, addr = s.accept()
         print(f"[SERVER] Client {client_id} connected from {addr}")
-        connections.append((conn, client_id))
+        connections.append([conn, client_id])
 
-    for client_id, (conn, _) in enumerate(connections):
+    for i in connections:
+        client_id=i[1]
+        conn=i[0]
         arch = {"input_dim": input_dim, "hidden_dims": hidden_dims, "output_dim": output_dim}
-        threading.Thread(
-            target=handle_client,
-            args=(conn, client_id, chunks[client_id], model_bytes, arch, local_epochs, training_type),
-        ).start()
+        threading.Thread(target=handle_client,args=(conn, client_id, chunks[client_id], model_bytes, arch, local_epochs, training_type)).start()
 
     while len(final_weights) < num_clients:
         time.sleep(0.1)
 
-    average = average_weights(final_weights)
+    average = average_weights(final_weights,chunks)
     model.load_state_dict(average)
     torch.save(model.state_dict(), "final_model.pth")
     print("[SERVER] Training complete. Final model saved as final_model.pth")
